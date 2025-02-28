@@ -10,7 +10,7 @@ The modified CosmoSIS modules have a path similar to the one you can find in the
 The modules that were modified are :
  - structure/projection/project_2d.py : The ouput Cl's from this module can now be Pseudo-Cl's coupled thourgh a mixing matrix given as an input. See the project_2d.yaml for a description of the new parameters. All the other files in the structure directory haven't been changed.
 
- - likelihood/2pt/save_2pt.py : This module was modified to bin the Cl's and the covariance saved in the 2pt files using the binning object stored in the NaMaster workspace given as input. See the save_2pt.yaml for a description of the new parameters. All the other files in the likelihood directory haven't been changed.
+ - likelihood/2pt/save_2pt.py : This module was modified to bin the Cl's and the covariance saved in the 2pt files using the binning object stored in the NaMaster workspace given as input. Note that the covariance computed in this module is not the partial-sky covariance accounting for mode coupling, it is still the simple full-sky divided by $f_\mathrm{sky}$ covariance (also called the Knox approximation). Only the binning is different. See the save_2pt.yaml for a description of the new parameters. All the other files in the likelihood directory haven't been changed.
  The only change made to this directory (apart from the modification to save_2pt.py) is the addition of the legendre.py module (which is normally located in cosmosis-standard-library/shear/cl_to_xi_fullsky) as it is used in spec_tools.py.
 
 ## Scripts
