@@ -2,6 +2,8 @@
 
 This repository contains modules from the cosmosis-standard-library that were modified to run an analysis with Pseudo-Cl's.
 
+To use this library you will need to install the [pymaster](https://namaster.readthedocs.io/en/latest/api/pymaster.workspaces.html) package.
+
 ## CosmoSIS modules
 The modified CosmoSIS modules have a path similar to the one you can find in the cosmosis-standard-library so that in the path pointing to the modules in your ini file you only need to change cosmosis-standard-library to cosmosis-pcl-library.
 
