@@ -1,29 +1,14 @@
-""" ChatGPT generated header
-Script Header:
-This script demonstrates the computation of a coupling matrix for pseudo-Cl power spectrum estimation
-using the Namaster library.
-
+"""
 Author: Sylvain Gouyou Beauchamps
 
 Date: 02/29/2024
 
 Description:
-This script reads a binary mask file defining the regions of the sky, generates a binning
-scheme with a minimum multipole of 10 and a bin width of 5, computes the coupling matrix using
-Namaster's NmtField and NmtWorkspace objects, and writes the workspace to a file.
-
-Dependencies:
-- Python 3.x
-- healpy
-- Namaster library
-- utils.py module (located in the '../lib' directory)
+This script reads a healpy map describing a mask, generates a binning
+scheme, computes the coupling matrix using Namaster, and writes the workspace to a file.
 
 Usage:
-python workspace_from_mask.py
-
-Inputs:
-- '../input/fullsky_mask_binary_NS32.fits': Input binary mask file.
-- '../input/fullsky_NmtWorkspace_NS32_LMIN10_BW5.fits': Output file for the computed coupling matrix.
+python create_nmt_workspace.py -h to see how to use the script
 
 Outputs:
 - The computed coupling matrix is saved in the specified output file.
