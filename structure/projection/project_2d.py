@@ -8,6 +8,8 @@ import scipy.interpolate as interp
 from projection_tools import exact_integral, limber_integral, get_dlogchi, \
                              TomoNzKernel, get_Pk_basis_funcs, get_bias_params_bin, \
                              get_PXX, get_PXm, Enum
+
+from projection_tools.fastpt_tools import get_bias_params_redshift
 import pymaster as nmt
 
 # for timing
