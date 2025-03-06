@@ -9,7 +9,10 @@ from projection_tools import exact_integral, limber_integral, get_dlogchi, \
                              TomoNzKernel, get_Pk_basis_funcs, get_bias_params_bin, \
                              get_PXX, get_PXm, Enum
 
-from projection_tools.fastpt_tools import get_bias_params_redshift
+from projection_tools.fastpt_tools import get_bias_params_redshift,\
+    get_PXX_red_dep, get_PXm_bias_red_dep
+
+
 import pymaster as nmt
 
 # for timing
@@ -854,6 +857,119 @@ class NlgalNlgalSpectrum(LingalLingalSpectrum):
             self.set_power(block, bin1, bin2)
         return self.pk_sublin_spline
 
+class NlgalredNlgalredSpectrum(LingalLingalSpectrum):
+    """
+    Class for computing galaxy C(l) with non-linear bias models.
+
+    For this case the linear power spectrum used in the exact
+    calculation is still just the linear matter power spectrum
+    (and the b_1 values are passed along with this).
+
+    We also construct the non-linear P(k) using fast-pt, on a bin
+    pair-by-bin pair basis. This non-linear P(k) is used for the
+    Limber calculation, and to construct the P_nl-P_lin spline
+    used for the non-linear correction in the exact calculation.
+
+    Since we inherit the compute method from LingalLingal, which
+    applies the galaxy bias factors after the computing the C(l)s
+    we divide P_nl by the linear bias factors when setting
+    self.pk_chi_logk_spline and self.pk_sublin_spline.
+
+    We might want to revise how that all works at some point
+    as it seems a bit clumsy. But oh well.
+    """
+    def prepare(self, block, pt_type="oneloop_eul_bk", **kwargs):
+
+        self.pt_type = pt_type
+
+        # Load bias values into a dictionary
+        self.bias_values_a, self.lin_bias_values_a = self.load_bias(
+            block, self.sample_a, pt_type)
+        if self.sample_a == self.sample_b:
+            self.bias_values_b = self.bias_values_a
+            self.lin_bias_values_b = self.lin_bias_values_a
+        else:
+            self.bias_values_b, self.lin_bias_values_b = self.load_bias(
+                block, self.sample_b, pt_type)
+
+        # Get power spectrum terms from fastpt. These
+        # will be used later to form P_gg for a given bin
+        # combination
+        self.k_nl_bias, self.Pk_basis_funcs = get_Pk_basis_funcs(
+            block, self.pt_type, output_nl_grid=True)
+
+        p = self.source.power[self.power_key]
+        self.pk_chi_logk_spline = None # Set these to None as
+        self.pk_sublin_spline = None # they depend on the bin pair
+        self.pk_lin_z0_logk_spline = p.lin_z0_logk_spline
+        self.lin_growth_spline = p.lin_growth_spline
+
+        # get_power_spline and get_power_sublin check these
+        # attributes to see whether they need to call set_power
+        self.current_bin1, self.current_bin2 = None, None
+
+    def load_bias(self, block, sample, pt_type):
+        bias_values = get_bias_params_redshift(block, pt_type, sample)
+        nbin = self.source.kernels[sample].nbin
+        divout_lin_bias_values = {}
+        for bin_num in range(1, nbin+1):
+            divout_lin_bias_values[bin_num] = bias_values["b1E"][0]
+        return bias_values, divout_lin_bias_values
+
+    # The P(k)s for the non-linear bias classes work
+    # a bit differently, annoyingly.
+    def set_power(self, block, bin1, bin2):
+        # # Record the current bin pair
+        self.current_bin1, self.current_bin2 = bin1, bin2
+
+        # Get the full non-linear P_gg(k) from fastpt
+        P_gg, P_gg_terms = get_PXX_red_dep(self.bias_values_a,
+            self.bias_values_b, self.Pk_basis_funcs,
+            self.pt_type)
+
+        # We inherit the compute method (and thus
+        # compute_limber and compute_exact methods)
+        # from LingalLingalSpectrum, which expects the
+        # non-linear P(k) in self.pk_chi_logk_spline, and
+        # then multiplies by the galaxy bias after the fact.
+        # So we set self.pk_chi_logk_spline to
+        # P_gg / lin_bias_1 / lin_bias_2
+        blin_1 = self.lin_bias_values_a[bin1]
+        blin_2 = self.lin_bias_values_b[bin2]
+        P_gg_div_bias = (P_gg / blin_1 / blin_2)
+        chi_vals = self.source.power[self.power_key].chi_vals
+        self.pk_chi_logk_spline = interp.RectBivariateSpline(
+            chi_vals, np.log(self.k_nl_bias),
+            P_gg_div_bias)
+        # Now we need the P-P_lin term to use in the
+        # Limber part of compute_exact. Again, this should
+        # be divided by the linear bias factors, since
+        # these are applied in LingalLingalSpectrum.compute_exact
+        P_sublin = (P_gg_div_bias -
+            self.Pk_basis_funcs["Plin_from_growth"])
+        self.pk_sublin_spline = interp.RectBivariateSpline(
+            chi_vals, np.log(self.k_nl_bias),
+            P_sublin)
+
+    def get_power_spline(self, block, bin1, bin2):
+        # If current bin pair does not match bin1, bin2,
+        # call self.set_power
+
+        #TODO : I could do call set_power only once as Pgg(z,k) is the same
+        # for all bins.
+        # A way of doing this would be to call set_power only if
+        # self.current_bini are None.
+        if self.current_bin1 != bin1 or self.current_bin2 != bin2:
+            self.set_power(block, bin1, bin2)
+        return self.pk_chi_logk_spline
+
+    def get_power_sublin(self, block, bin1, bin2):
+        # If current bin pair does not match bin1, bin2,
+        # call self.set_power
+        if (self.current_bin1 != bin1 or self.current_bin2 != bin2):
+            self.set_power(block, bin1, bin2)
+        return self.pk_sublin_spline
+
 class NlgalShearSpectrum(LingalLensingSpectrum):
     """
     Class for computing galaxy C(l) with non-linear bias models. For this case
@@ -904,6 +1020,92 @@ class NlgalShearSpectrum(LingalLensingSpectrum):
 
         # Get the full non-linear P_gg(k) from fastpt
         P_gm, P_gm_terms = get_PXm(self.bias_values_a[bin1],
+            self.Pk_basis_funcs, self.pt_type)
+
+        # We inherit the compute method (and thus
+        # compute_limber and compute_exact methods)
+        # from LingalLensingSpectrum, which expects the
+        # non-linear P(k) in self.pk_chi_logk_spline, and
+        # then multiplies by the galaxy bias after the fact.
+        # So we set self.pk_chi_logk_spline to
+        # P_gm / lin_bias_1
+        blin_1 = self.lin_bias_values_a[bin1]
+        P_gm_div_bias = (P_gm / blin_1 )
+        chi_vals = self.source.power[self.power_key].chi_vals
+        self.pk_chi_logk_spline = interp.RectBivariateSpline(
+            chi_vals, np.log(self.k_nl_bias),
+            P_gm_div_bias)
+
+        # Now we need the P-P_lin term to use in the
+        # Limber part of compute_exact. Again, this should
+        # be divided by the linear bias factors, since
+        # $hese are applied in LingalLingalSpectrum.compute_exact
+        P_sublin = (P_gm_div_bias - self.Pk_basis_funcs["Plin_from_growth"])
+        self.pk_sublin_spline = interp.RectBivariateSpline(
+            chi_vals, np.log(self.k_nl_bias),
+            P_sublin)
+
+    def get_power_spline(self, block, bin1, bin2):
+        # If current bin pair does not match bin1, bin2,
+        # call self.set_power
+        if self.current_bin1!=bin1:
+            self.set_power(block, bin1, bin2)
+        return self.pk_chi_logk_spline
+
+    def get_power_sublin(self, block, bin1, bin2):
+        # If current bin pair does not match bin1, bin2,
+        # call self.set_power
+        if self.current_bin1!=bin1:
+            self.set_power(block, bin1, bin2)
+        return self.pk_sublin_spline
+
+class NlgalredShearSpectrum(LingalLensingSpectrum):
+    """
+    Class for computing galaxy C(l) with non-linear bias models. For this case
+    the linear power spectrum used in the exact calculation is still
+    just the linear matter power spectrum (and the b_1 values are passed
+    along with this). We also need to construct the non-Linear P(k) using fast-pt.
+    """
+    def prepare(self, block, pt_type="oneloop_eul_bk", **kwargs):
+        # assign pt_type
+        self.pt_type = pt_type
+
+        # Load bias values into a dictionary
+        self.bias_values_a, self.lin_bias_values_a = self.load_bias(
+            block, self.sample_a, pt_type)
+
+        # Get power spectrum terms from fastpt. These
+        # will be used later to form P_gm for a given bin
+        # combination
+        self.k_nl_bias, self.Pk_basis_funcs = get_Pk_basis_funcs(
+            block, self.pt_type, output_nl_grid=True)
+
+        p = self.source.power[self.power_key]
+        self.pk_chi_logk_spline = None # Set these to None as
+        self.pk_sublin_spline = None # they depend on the bin pair
+        self.pk_lin_z0_logk_spline = p.lin_z0_logk_spline
+        self.lin_growth_spline = p.lin_growth_spline
+
+        # get_power_spline and get_power_sublin check these
+        # attributes to see whether they need to call set_power
+        self.current_bin1 = None
+
+    def load_bias(self, block, sample, pt_type):
+        bias_values = get_bias_params_redshift(block, pt_type, sample)
+        nbin = self.source.kernels[sample].nbin
+        divout_lin_bias_values = {}
+        for bin_num in range(1, nbin+1):
+            divout_lin_bias_values[bin_num] = bias_values["b1E"][0]
+        return bias_values, divout_lin_bias_values
+
+    # The P(k)s for the non-linear bias classes work
+    # a bit differently, annoyingly.
+    def set_power(self, block, bin1, bin2):
+        # Record the current bin pair
+        self.current_bin1 = bin1
+
+        # Get the full non-linear P_gg(k) from fastpt
+        P_gm, P_gm_terms = get_PXm_bias_red_dep(self.bias_values_a,
             self.Pk_basis_funcs, self.pt_type)
 
         # We inherit the compute method (and thus
@@ -1176,7 +1378,24 @@ class SpectrumType(Enum):
         prefactor_type = (None, None)
         has_rsd = True
 
+    class NlgalredNlgalred(NlgalredNlgalredSpectrum):
+        power_3d_type = MatterPower3D
+        kernel_types = ("N", "N")
+        autocorrelation = True
+        name = "galaxy_cl"
+        prefactor_type = (None, None)
+        has_rsd = True
+
     class NlgalShear(NlgalShearSpectrum):
+        autocorrelation = False
+        power_3d_type = MatterPower3D
+        kernel_types = ("N", "W")
+        autocorrelation = False
+        name = "galaxy_shear_cl"
+        prefactor_type = (None, "lensing")
+        has_rsd = False
+
+    class NlgalredShear(NlgalredShearSpectrum):
         autocorrelation = False
         power_3d_type = MatterPower3D
         kernel_types = ("N", "W")
